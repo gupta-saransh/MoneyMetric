@@ -5,9 +5,9 @@
 /dist
 /.vercel
 
-# env
-.env
-.env*.local
+# env (ignore all secrets, but keep the committed template)
+.env*
+!.env.example
 
 # typescript
 *.tsbuildinfo

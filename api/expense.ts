@@ -18,7 +18,7 @@ const ExpenseInput = z.object({
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'Method not allowed', message: '❌ Method not allowed' });
   }
 
   // Vercel auto-parses JSON, but if the Content-Type header is missing the body
@@ -43,8 +43,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!parsed.success) {
     const fieldErrors = parsed.error.flatten().fieldErrors;
     console.warn('Validation failed:', { body, fieldErrors });
+    const badFields = Object.keys(fieldErrors).join(', ') || 'input';
     return res.status(400).json({
       error: 'Validation failed',
+      message: `❌ Invalid: ${badFields}`,
       fieldErrors, // which fields failed and why
       received: body, // echo of what the server actually got
     });
@@ -53,7 +55,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const category = findCategory(input.category);
   if (!category) {
-    return res.status(400).json({ error: `Unknown category: ${input.category}` });
+    return res.status(400).json({
+      error: `Unknown category: ${input.category}`,
+      message: `❌ Unknown category: ${input.category}`,
+    });
   }
 
   let accountId: number | null = null;
@@ -61,7 +66,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (input.account) {
     const account = findAccount(input.account);
     if (!account) {
-      return res.status(400).json({ error: `Unknown account: ${input.account}` });
+      return res.status(400).json({
+        error: `Unknown account: ${input.account}`,
+        message: `❌ Unknown account: ${input.account}`,
+      });
     }
     accountId = account.id;
     paymentMethod = account.type;
@@ -73,7 +81,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (input.occurred_at) {
     const d = new Date(input.occurred_at);
     if (Number.isNaN(d.getTime())) {
-      return res.status(400).json({ error: `Invalid date for occurred_at: ${input.occurred_at}` });
+      return res.status(400).json({
+        error: `Invalid date for occurred_at: ${input.occurred_at}`,
+        message: `❌ Invalid date: ${input.occurred_at}`,
+      });
     }
     occurredAt = d;
   }
@@ -102,6 +113,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // `detail` is temporary, to diagnose the live deploy; safe to remove later.
     return res.status(500).json({
       error: 'Database error',
+      message: '❌ Server error — not saved',
       detail: err instanceof Error ? err.message : String(err),
     });
   }

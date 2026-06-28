@@ -11,7 +11,8 @@ const ExpenseInput = z.object({
   account: z.string().min(1).optional(),
   note: z.string().optional(),
   type: z.enum(['expense', 'income', 'refund']).optional(),
-  occurred_at: z.string().datetime().optional(),
+  // Any date string the Shortcut sends (ISO 8601 preferred); parsed below.
+  occurred_at: z.string().optional(),
 });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -20,11 +21,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const parsed = ExpenseInput.safeParse(req.body);
+  // Vercel auto-parses JSON, but if the Content-Type header is missing the body
+  // can arrive as a raw string — recover from that too.
+  let body: unknown = req.body;
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch {
+      // leave as-is; validation below will report it
+    }
+  }
+
+  // Detailed log of exactly what arrived (visible in Vercel Runtime Logs).
+  console.log('POST /api/expense received:', {
+    contentType: req.headers['content-type'] ?? null,
+    rawBodyType: typeof req.body,
+    body,
+  });
+
+  const parsed = ExpenseInput.safeParse(body);
   if (!parsed.success) {
-    return res
-      .status(400)
-      .json({ error: 'Validation failed', details: parsed.error.flatten().fieldErrors });
+    const fieldErrors = parsed.error.flatten().fieldErrors;
+    console.warn('Validation failed:', { body, fieldErrors });
+    return res.status(400).json({
+      error: 'Validation failed',
+      fieldErrors, // which fields failed and why
+      received: body, // echo of what the server actually got
+    });
   }
   const input = parsed.data;
 
@@ -44,6 +67,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     paymentMethod = account.type;
   }
 
+  // Backdating: if a date was sent (e.g. from "Log Past Expense"), use it;
+  // otherwise the DB defaults occurred_at to now().
+  let occurredAt: Date | null = null;
+  if (input.occurred_at) {
+    const d = new Date(input.occurred_at);
+    if (Number.isNaN(d.getTime())) {
+      return res.status(400).json({ error: `Invalid date for occurred_at: ${input.occurred_at}` });
+    }
+    occurredAt = d;
+  }
+
   try {
     const sql = getSql();
     const [row] = await sql`
@@ -53,7 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ) values (
         ${DEFAULT_USER_ID}, ${input.amount}, ${category.id}, ${category.isDiscretionary},
         ${accountId}, ${paymentMethod}, ${input.note ?? null},
-        ${input.type ?? 'expense'}, ${input.occurred_at ?? sql`now()`}
+        ${input.type ?? 'expense'}, ${occurredAt ?? sql`now()`}
       )
       returning id
     `;

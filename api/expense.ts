@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { z } from 'zod';
-import { sql } from '../lib/db';
+import { getSql } from '../lib/db.js';
 import { findCategory, findAccount, DEFAULT_USER_ID } from '../lib/options.js';
 
 // What the iOS Shortcut sends. `account` is optional; if present it derives
@@ -45,6 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    const sql = getSql();
     const [row] = await sql`
       insert into expenses (
         user_id, amount, category_id, is_discretionary,
@@ -64,6 +65,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (err) {
     console.error('Insert failed', err);
-    return res.status(500).json({ error: 'Database insert failed' });
+    // `detail` is temporary, to diagnose the live deploy; safe to remove later.
+    return res.status(500).json({
+      error: 'Database error',
+      detail: err instanceof Error ? err.message : String(err),
+    });
   }
 }
